@@ -1,8 +1,9 @@
 import collections
 import json
-import requests
 import uuid
 from logging import getLogger
+
+import requests
 
 from .errors import ResponseError, EntryCreatedError, OperationCompletionError
 
@@ -12,6 +13,14 @@ logger = getLogger(__name__)
 def _get_id(response):
     try:
         return _get_data(response)["id"]
+    except KeyError:
+        raise EntryCreatedError(
+            "No 'id' in response: {0}".format(response.text))
+
+
+def _get_number(response):
+    try:
+        return _get_data(response)["number"]
     except KeyError:
         raise EntryCreatedError(
             "No 'id' in response: {0}".format(response.text))
@@ -108,6 +117,8 @@ class ReportPortalService(object):
         self.session.headers["Authorization"] = "bearer {0}".format(self.token)
         self.stack = [None]
         self.launch_id = None
+        self.launch_name = None
+        self.launch_number = None
 
     def terminate(self):
         pass
@@ -123,7 +134,9 @@ class ReportPortalService(object):
         }
         url = uri_join(self.base_url, "launch")
         r = self.session.post(url=url, json=data)
+        self.launch_name = data['name']
         self.launch_id = _get_id(r)
+        self.launch_number = _get_number(r)
         self.stack.append(None)
         logger.debug("start_launch - Stack: %s", self.stack)
         return self.launch_id
