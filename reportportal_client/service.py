@@ -2,6 +2,8 @@ import collections
 import json
 import uuid
 from logging import getLogger
+from pprint import pformat
+from time import sleep
 
 import requests
 
@@ -133,7 +135,10 @@ class ReportPortalService(object):
             "mode": mode
         }
         url = uri_join(self.base_url, "launch")
+        logger.debug(f"Starting the RP Launch '{name}' by issuing the POST request as following:\n"
+                     f"URL: {url}\ndata: {pformat(data)}")
         r = self.session.post(url=url, json=data)
+        logger.debug(f"The response for start_launch is as following:\n{r.text}")
         self.launch_name = data['name']
         self.launch_id = _get_id(r)
         self.launch_number = _get_number(r)
@@ -147,7 +152,10 @@ class ReportPortalService(object):
             "status": status
         }
         url = uri_join(self.base_url, "launch", self.launch_id, action)
+        logger.debug(f"Performing the {action}_launch on launch {self.launch_id} by issuing the PUT request "
+                     f"as following:\nURL: {url}\ndata:{pformat(data)}")
         r = self.session.put(url=url, json=data)
+        logger.debug(f"The response for {action}_launch is as following:\n{r.text}")
         self.stack.pop()
         logger.debug("%s_launch - Stack: %s", action, self.stack)
         return _get_msg(r)
@@ -192,8 +200,11 @@ class ReportPortalService(object):
             url = uri_join(self.base_url, "item", parent_item_id)
         else:
             url = uri_join(self.base_url, "item")
+        logger.debug(f"Starting the {item_type} test-item '{name}' by issuing the POST request as following:\n"
+                     f"URL: {url}\ndata: {pformat(data)}")
         r = self.session.post(url=url, json=data)
-
+        logger.debug(f"The response for start_test_item {item_type} test-item '{name}' is as "
+                     f"following:\n{r.text}")
         item_id = _get_id(r)
         self.stack.append(item_id)
         logger.debug("start_test_item - Stack: %s", self.stack)
@@ -207,7 +218,10 @@ class ReportPortalService(object):
         }
         item_id = self.stack.pop()
         url = uri_join(self.base_url, "item", item_id)
+        logger.debug(f"Finishing the test-item {item_id} by issuing the PUT request as following:\n"
+                     f"URL: {url}\ndata:{pformat(data)}")
         r = self.session.put(url=url, json=data)
+        logger.debug(f"The response for finish_test_item {item_id} is as following:\n{r.text}")
         logger.debug("finish_test_item - Stack: %s", self.stack)
         return _get_msg(r)
 
@@ -223,7 +237,10 @@ class ReportPortalService(object):
             return self.log_batch([data])
         else:
             url = uri_join(self.base_url, "log")
+            logger.debug(f"Attempting to create a simple log entry by the POST request as following:\n"
+                         f"URL: {url}\nitem_id: {data['item_id']}\nlevel: {data['level']}\ntime: {data['time']}")
             r = self.session.post(url=url, json=data)
+            logger.debug(f"The response for the simple log entry creation is as following:\n{r.text}")
             logger.debug("log - Stack: %s", self.stack)
             return _get_id(r)
 
@@ -242,10 +259,10 @@ class ReportPortalService(object):
         """
 
         url = uri_join(self.base_url, "log")
-
+        item_id = self.stack[-1]
         attachments = []
         for log_item in log_data:
-            log_item["item_id"] = self.stack[-1]
+            log_item["item_id"] = item_id
             attachment = log_item.get("attachment", None)
 
             if "attachment" in log_item:
@@ -271,8 +288,28 @@ class ReportPortalService(object):
             )
         )]
         files.extend(attachments)
-        r = self.session.post(url=url, files=files)
-        logger.debug("log_batch - Stack: %s", self.stack)
-        logger.debug("log_batch response: %s", r.text)
-
-        return _get_data(r)
+        info_msg = f"Attempting to create {len(log_data)} log-item entries with {len(attachments)} " \
+                   f"attachments by the POST request as following:\nURL: {url}\n" \
+                   f"log_items:\n{json.dumps(log_data)}\n"
+        if attachments:
+            info_msg += f"attachments:\n{attachments}"
+        logger.debug(info_msg)
+        attachment_retries = 10
+        attachment_error = None
+        for i in range(attachment_retries):
+            logger.debug(f"Issuing HTTP-POST for the log-items creation - attempt number "
+                         f"{i+1}/{attachment_retries}")
+            try:
+                r = self.session.post(url=url, files=files)
+                logger.debug("log_batch - Stack: %s", self.stack)
+                logger.debug(logger.debug(f"The response for HTTP-POST of the log-items creation is as "
+                                          f"following:\n{r.text}"))
+                return _get_data(r)
+            except ResponseError as e:
+                attachment_error = e
+                logger.warning(f"The HTTP-POST for the log-items creation attempt {i+1} has failed!")
+                logger.debug("Sleeping for 1 second..")
+                sleep(1)
+        logger.error(f"Failed to create the log-item entries since all {attachment_retries} attempts have "
+                     f"failed due to error:\n{attachment_error}")
+        logger.debug("Skipping the log-item entries creation")
