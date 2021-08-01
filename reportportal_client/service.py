@@ -1,11 +1,10 @@
 import collections
 import json
+import requests
 import uuid
 from logging import getLogger
 from pprint import pformat
 from time import sleep
-
-import requests
 
 from .errors import ResponseError, EntryCreatedError, OperationCompletionError
 
@@ -18,6 +17,14 @@ def _get_id(response):
     except KeyError:
         raise EntryCreatedError(
             "No 'id' in response: {0}".format(response.text))
+
+
+def _get_name(response):
+    try:
+        return _get_data(response)["name"]
+    except KeyError:
+        raise EntryCreatedError(
+            "No 'name' in response: {0}".format(response.text))
 
 
 def _get_number(response):
@@ -139,12 +146,23 @@ class ReportPortalService(object):
                      f"URL: {url}\ndata: {pformat(data)}")
         r = self.session.post(url=url, json=data)
         logger.debug(f"The response for start_launch is as following:\n{r.text}")
-        self.launch_name = data['name']
+        self.launch_name = name
         self.launch_id = _get_id(r)
         self.launch_number = _get_number(r)
         self.stack.append(None)
         logger.debug("start_launch - Stack: %s", self.stack)
         return self.launch_id
+
+    def update_existing_launch(self, launch_id):
+        url = uri_join(self.base_url, "launch", launch_id)
+        logger.debug(f"Updating the RP Launch '{launch_id}' by issuing the GET request as following:\n"
+                     f"URL: {url}")
+        r = self.session.get(url=url)
+        logger.debug(f"The response for start_launch is as following:\n{r.text}")
+        self.launch_name = _get_name(r)
+        self.launch_id = launch_id
+        self.launch_number = _get_number(r)
+        self.stack.append(None)
 
     def _finalize_launch(self, end_time, action, status):
         data = {
@@ -298,7 +316,7 @@ class ReportPortalService(object):
         attachment_error = None
         for i in range(attachment_retries):
             logger.debug(f"Issuing HTTP-POST for the log-items creation - attempt number "
-                         f"{i+1}/{attachment_retries}")
+                         f"{i + 1}/{attachment_retries}")
             try:
                 r = self.session.post(url=url, files=files)
                 logger.debug("log_batch - Stack: %s", self.stack)
@@ -307,7 +325,7 @@ class ReportPortalService(object):
                 return _get_data(r)
             except ResponseError as e:
                 attachment_error = e
-                logger.warning(f"The HTTP-POST for the log-items creation attempt {i+1} has failed!")
+                logger.warning(f"The HTTP-POST for the log-items creation attempt {i + 1} has failed!")
                 logger.debug("Sleeping for 1 second..")
                 sleep(1)
         logger.error(f"Failed to create the log-item entries since all {attachment_retries} attempts have "
