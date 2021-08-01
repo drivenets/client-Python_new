@@ -133,7 +133,7 @@ class ReportPortalServiceAsync(object):
         self.rp_client = ReportPortalService(
             endpoint, project, token, api_base)
         self.log_batch = []
-        self.supported_methods = ["start_launch", "finish_launch",
+        self.supported_methods = ["start_launch", "finish_launch", "update_existing_launch",
                                   "start_test_item", "finish_test_item", "log"]
 
         self.queue = queue.Queue()
@@ -225,6 +225,12 @@ class ReportPortalServiceAsync(object):
             "mode": mode
         }
         self.queue.put_nowait(("start_launch", args))
+
+    def update_existing_launch(self, launch_id):
+        args = {
+            "launch_id": launch_id,
+        }
+        self.queue.put_nowait(("update_existing_launch", args))
 
     def finish_launch(self, end_time, status=None):
         logger.debug("Finish launch queued")
