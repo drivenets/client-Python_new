@@ -252,9 +252,19 @@ class ReportPortalService(object):
             "rerunOf": rerunOf
         }
         url = uri_join(self.base_url_v2, "launch")
-        r = self.session.post(url=url, json=data, verify=self.verify_ssl)
-        self.launch_uuid = _get_id(r)
-        self.update_launch_info()
+        max_launch_creation_retries = 5
+        for _ in range(max_launch_creation_retries):
+            r = self.session.post(url=url, json=data, verify=self.verify_ssl)
+            self.launch_uuid = _get_id(r)
+            try:
+                self.update_launch_info()
+                break
+            except KeyError:
+                logger.error("Failed to create start a new launch - retrying launch creation")
+                sleep(0.5)
+        else:
+            raise ResponseError(f"Failed to properly create launch under the ReportPortal server - attempted "
+                                f"{max_launch_creation_retries} times and failed")
         logger.debug("start_launch - UUID: %s", self.launch_uuid)
         return self.launch_uuid
 
@@ -287,6 +297,8 @@ class ReportPortalService(object):
         with 0.5 second sleep between them.
 
         :param int max_retries: Number of retries to get launch information.
+        :param is_by_uuid: A flag which indicates if the REST-API URL that we use to fetch the launch information is
+                           composed from the launch uuid or the launch id
         :return dict: launch information
         """
         if all(attr is None for attr in [self.launch_id, self.launch_uuid]):
