@@ -251,10 +251,11 @@ class ReportPortalService(object):
             "rerunOf": rerunOf
         }
         url = uri_join(self.base_url_v2, "launch")
+        r = self.session.post(url=url, json=data, verify=self.verify_ssl)
+        sleep(0.5)
+        self.launch_uuid = _get_id(r)
         max_launch_creation_retries = 5
         for _ in range(max_launch_creation_retries):
-            r = self.session.post(url=url, json=data, verify=self.verify_ssl)
-            self.launch_uuid = _get_id(r)
             try:
                 self.update_launch_info()
                 break
@@ -262,7 +263,7 @@ class ReportPortalService(object):
                 logger.error("Failed to create start a new launch - retrying launch creation")
                 sleep(0.5)
         else:
-            raise ResponseError(f"Failed to properly create launch under the ReportPortal server - attempted "
+            raise ResponseError(f"Failed to properly update launch under the ReportPortal server - attempted "
                                 f"{max_launch_creation_retries} times and failed")
         logger.debug("start_launch - UUID: %s", self.launch_uuid)
         return self.launch_uuid
