@@ -241,27 +241,44 @@ class ReportPortalService(object):
         """Start a new launch with the given parameters."""
         if attributes and isinstance(attributes, dict):
             attributes = _dict_to_payload(attributes)
-        data = {
-            "name": name,
-            "description": description,
-            "attributes": verify_value_length(attributes),
-            "startTime": start_time,
-            "mode": mode,
-            "rerun": rerun,
-            "rerunOf": rerunOf
-        }
         url = uri_join(self.base_url_v2, "launch")
-        r = self.session.post(url=url, json=data, verify=self.verify_ssl)
-        sleep(0.5)
-        self.launch_uuid = _get_id(r)
-        max_launch_creation_retries = 5
-        for _ in range(max_launch_creation_retries):
-            try:
-                self.update_launch_info()
-                break
-            except KeyError:
-                logger.error("Failed to create start a new launch - retrying launch creation")
-                sleep(0.5)
+        max_launch_creation_retries = 3
+        for creation_counter in range(max_launch_creation_retries):
+            data = {
+                "name": name,
+                "description": description,
+                "attributes": verify_value_length(attributes),
+                "startTime": start_time,
+                "mode": mode,
+                "rerun": rerun,
+                "rerunOf": rerunOf
+            }
+
+            r = self.session.post(url=url, json=data, verify=self.verify_ssl)
+            sleep(2)
+            self.launch_uuid = _get_id(r)
+            max_launch_update_creation_retries = 10
+            for _ in range(max_launch_update_creation_retries):
+                try:
+                    self.update_launch_info()
+                    break
+                except KeyError:
+                    logger.error("Failed to update the new launch - retrying launch update")
+                    sleep(1)
+            else:
+                self.finish_launch(end_time=start_time, status="FAILED")
+                try:
+                    urlv1 = uri_join(self.base_url_v1, "launch")
+                    r = self.session.get(url=f"{urlv1}?filter.eq.uuid={self.launch_uuid}", verify=self.verify_ssl)
+                    launch_id = json.loads(r.text)["content"][0]["id"]
+                    r = self.delete_launch(launch_id)
+                except KeyError:
+                    logger.error("Failed to delete the created launch because missing information from RP")
+                except:
+                    logger.error("Failed to delete the created launch")
+                sleep(10)
+                continue
+            break
         else:
             raise ResponseError(f"Failed to properly update launch under the ReportPortal server - attempted "
                                 f"{max_launch_creation_retries} times and failed")
@@ -290,6 +307,16 @@ class ReportPortalService(object):
         logger.debug("finish_launch - ID: %s", self.launch_uuid)
         return _get_msg(r)
 
+    def delete_launch(self, launch_id, **kwargs):
+        """Delete a stopped with the given parameters.
+        """
+        if self._batch_logs:
+            self._log_batch(None, force=True)
+        url = uri_join(self.base_url_v1, "launch", launch_id)
+        r = self.session.delete(url=url, verify=self.verify_ssl)
+        logger.debug("delete_launch - ID: %s", self.launch_uuid)
+        return _get_msg(r)
+
     def get_launch_info(self, max_retries=5, is_by_uuid=True):
         """Get the current launch information.
 
@@ -313,18 +340,24 @@ class ReportPortalService(object):
 
         for _ in range(max_retries):
             logger.debug(logger_msg)
+            print(logger_msg)
             resp = self.session.get(url=url, verify=self.verify_ssl)
 
             if resp.status_code == 200:
                 launch_info = _get_json(resp)
                 logger.debug("get_launch_info - Launch info: %s", launch_info)
+                print("get_launch_info - Launch info: %s", launch_info)
                 break
 
             logger.debug("get_launch_info - Launch info: Response code %s\n%s",
                          resp.status_code, resp.text)
+            print("get_launch_info - Launch info: Response code %s\n%s",
+                         resp.status_code, resp.text)
             sleep(0.5)
         else:
             logger.warning("get_launch_info - Launch info: "
+                           "Failed to fetch launch ID from the API.")
+            print("get_launch_info - Launch info: "
                            "Failed to fetch launch ID from the API.")
             launch_info = {}
 
