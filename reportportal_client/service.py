@@ -258,13 +258,15 @@ class ReportPortalService(object):
             sleep(2)
             self.launch_uuid = _get_id(r)
             max_launch_update_creation_retries = 10
+            sleep_time = 0
             for _ in range(max_launch_update_creation_retries):
+                sleep_time += 2
                 try:
                     self.update_launch_info()
                     break
                 except KeyError:
                     logger.error("Failed to update the new launch - retrying launch update")
-                    sleep(1)
+                    sleep(sleep_time)
             else:
                 self.finish_launch(end_time=start_time, status="FAILED")
                 try:
